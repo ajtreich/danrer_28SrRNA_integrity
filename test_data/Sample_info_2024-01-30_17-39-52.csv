@@ -1,0 +1,9 @@
+lane,sample_name,group,target_gene,experiment
+1,pcas13d_4hpf_n1-2,pcas13d,none,si:dkey-93m18.4_kd1
+2,pcas13d_4hpf_n3-1,pcas13d,none,si:dkey-93m18.4_kd1
+3,pcas13d_guideRNA2_n2-1,pcas13d_guideRNA2,si:dkey-93m18.4,si:dkey-93m18.4_kd1
+4,pcas13d_guideRNA2_n3-1,pcas13d_guideRNA2,si:dkey-93m18.4,si:dkey-93m18.4_kd1
+5,pcas13d_guideRNA3_n1-2,pcas13d_guideRNA3,si:dkey-93m18.4,si:dkey-93m18.4_kd1
+6,pcas13d_guideRNA3_n2-1,pcas13d_guideRNA3,si:dkey-93m18.4,si:dkey-93m18.4_kd1
+7,pcas13d_guideRNA1_n2-1,pcas13d_guideRNA1,si:dkey-93m18.4,si:dkey-93m18.4_kd1
+8,pcas13d_guideRNA1_n3-1,pcas13d_guideRNA1,si:dkey-93m18.4,si:dkey-93m18.4_kd1

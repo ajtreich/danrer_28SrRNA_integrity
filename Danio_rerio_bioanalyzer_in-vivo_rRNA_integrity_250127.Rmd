@@ -1,0 +1,154 @@
+---
+title: "Danio_rerio_bioanalyzer_in-vivo_rRNA_integrity_v1"
+author: "AJ Treichel"
+date: "2025-01-27"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, message=FALSE, results="hide", warning=FALSE}
+library(ggplot2)
+library(RColorBrewer)
+library(reshape2)
+library(dplyr)
+library(pander)
+library(knitr)
+library(rmarkdown)
+library(stringr)
+library(readr)
+library(forcats)
+library(purrr)
+library(here)
+library(pracma)
+library(gtools)
+```
+
+
+
+#### Loading custom functions for the analysis pipeline
+```{r loading custom functions, message=FALSE, warning=FALSE}
+source(here("functions/250127_bioanalyzer_analysis_functions.R"))
+```
+
+### This notebook takes a whole directory as input that contains "*Ladder\\.csv" file along with "Sample.*\\.csv" files, and an "info.*\\.csv" from a single bioanalyzer chip.
+The 'test_data' folder is an example that you can use to test this script.
+```{r specifying inputs & outputs, message=FALSE, warning=FALSE}
+# Specify your input directory
+input_dir <- here("test_data")
+# Specify your output directory
+output_dir <- here('test_output_1')
+# Making the output directory if it doesn't exist
+if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+}
+```
+
+#### It is a good idea to run the ba.fitladder() function first in order to make sure your ladder fit is good. Some ladder runs are noisier than others and you may need to adjust the parameters here
+
+```{r fitting ladder, message=FALSE, warning=FALSE}
+ba.fitladder(input_dir)
+```
+
+### Okay, so in the test data, the ladder fit is appropriate. Now we move on to naming, calibrating, normalizing, and trimming the traces.
+```{r generating traces, message=FALSE, warning=FALSE}
+trace_data <- ba.cal_trim_csv(directory = input_dir, output_path = output_dir) 
+```
+
+```{r looking at traces dataframe, message=FALSE, warning=FALSE}
+head(trace_data)
+```
+
+
+### Now we can plot these traces to see if we have any funny business going on.
+
+```{r plotting traces, message=FALSE, warning=FALSE}
+trace_data %>% 
+  reshape2::melt(., id.vars = c('Time', 'size_nt'), value.name = 'norm_intensity', variable.name = 'sample') %>% 
+  ggplot(aes( x = size_nt, y = norm_intensity, color = sample, group = sample))+
+  geom_line(linewidth = 0.75, alpha = 0.5)+
+  scale_x_continuous(limits = c(0, 4000), breaks = seq(0,4000, by = 1000))+
+  scale_y_continuous(limits = c(-0.05, 1.05), breaks = seq(0,1, by = 0.1))+
+  theme_classic()
+```
+
+
+### Now that we have all of our traces identified and processed, we can find & analyze the 18S rRNA, 28S rRNA, and potential 28S rRNA cleavage peak(s) in it. THIS REQUIRES NORMALIZED TRACES AS INPUT
+#### It is a good first step to test whether you can detect any peaks with the pipeline using the ba.analyze_rrna_list_only() command. You may need to adjust the default parameters if the traces are shifted and/or noisy compared to the output that this pipeline was developed with.
+
+```{r checking peak calling parameters, message=FALSE, warning=FALSE}
+ba.analyze_rrna_list_only(trace_data)
+```
+
+### Here we find the peaks without modifying the threshold, and they fall within the default ranges of the function.
+
+#### However if we wanted to narrow these ranges to what we observe on our chip OR change them because our chip ran differently, we can directly specify the ranges in the rRNA analysis table. This chip is very clean and consistent: the 28S peak ranges from index 481-485, the 18S peak ranges from index 358-361, the large 28S cleavage peak ranges from index 436-440, and the small 28S cleavage peak ranges from index 270-272. For this example, I will narrow the ranges a little from their defaults to show how you would do this. 
+```{r analyzing peaks, message=FALSE, warning=FALSE}
+rRNA_analysis_table <- ba.analyze_rrna(trace_data, range_28s =  c(470,495), range_18s = c(350,370), range_deg_l =  c(425,450), range_deg_s =  c(260,280))
+```
+
+### Looking at the output from this function. It has each peak from each sample identified based upon the search range and analyzed in a single row. Therefore each sample will generate 4 rows. 
+
+```{r checking output, message=FALSE, warning=FALSE}
+head(rRNA_analysis_table)
+tail(rRNA_analysis_table)
+```
+
+
+```{r saving peak analyses output, message=FALSE, warning=FALSE}
+# It is a great idea to save this peak analysis table if the command runs and makes sense
+write_csv(rRNA_analysis_table, paste0(output_dir, "/", 'rRNA_table.csv'))
+```
+
+
+#### If you have replicates for a single treatment (or want to plot all controls together), you will need to specify this group information in your dataframe. You should be able to extract group information from the metadata file that the pipeline used.
+```{r adding metadata, message=FALSE, warning=FALSE}
+sample_info_file <- list.files(path = input_dir , pattern = 'info.*\\.csv', recursive = TRUE, full.names = TRUE )
+sinfo <- read.csv(sample_info_file)
+sinfo$sample_name <- gsub(pattern = "[^[:alnum:]_]", "_", replacement = '_', x = sinfo$sample_name) # Removing special characters
+sinfo$sample_name <- ifelse(grepl(pattern = "^[0-9]", x = sinfo$sample_name), paste0("s_", sinfo$sample_name), sinfo$sample_name) # Adding a alpha character if it starts with a number 
+sinfo$group <- gsub(pattern = "[^[:alnum:]_]", replacement = '_', x = sinfo$group) # Removing special characters
+sinfo$group <- ifelse(grepl(pattern = "^[0-9]", x = sinfo$group), paste0("g_", sinfo$group), sinfo$group) # Adding a alpha character if it starts with a number 
+sinfo$target_gene <- gsub(pattern = "[^[:alnum:]_]", replacement = '_', x = sinfo$target_gene) # Removing special characters
+sinfo$target_gene <- ifelse(grepl(pattern = "^[0-9]", x = sinfo$target_gene), paste0("t_", sinfo$target_gene), sinfo$target_gene) # Adding a alpha character if it starts with a number 
+sinfo$experiment <- gsub(pattern = "[^[:alnum:]_]", replacement = '_', x = sinfo$experiment) # Removing special characters
+sinfo$experiment <- ifelse(grepl(pattern = "^[0-9]", x = sinfo$experiment), paste0("t_", sinfo$experiment), sinfo$experiment) # Adding a alpha character if it starts with a number 
+rRNA_analysis_table <- rRNA_analysis_table %>% left_join(., sinfo %>% select(sample_name, group), by = "sample_name") 
+```
+
+#### Now that there is group information, you can plot any of the basic peak calling information from this dataframe as you like. However, we still need to calculate the 28S rRNA integrity ratio for each sample. To do this, we will reshape our dataframe to get the max_int (maximum intensity) for each peak so that we can simply do the math.
+
+```{r calculating rRNA integrity ratio, message=FALSE, warning=FALSE}
+rRNA_analysis_table_maxes <- dcast(rRNA_analysis_table, sample_name + group ~ id_peak, value.var = 'max_int')
+# Calculating the ratio for 28S degradation
+rRNA_analysis_table_maxes$ratio_28S_long <- rRNA_analysis_table_maxes$rrna_28S/rRNA_analysis_table_maxes$deg_28s_long
+rRNA_analysis_table_maxes
+# It is a great idea to save this maxes table
+write_csv(rRNA_analysis_table_maxes, paste0(output_dir, "/", 'rRNA_maxes_integrity_ratio.csv'))
+```
+
+#### Now you can plot your results
+```{r plotting 28S rRNA integrity ratios, message=FALSE, warning=FALSE}
+plot_28s_lr <- rRNA_analysis_table_maxes %>%
+  ggplot(aes(x= group, y = ratio_28S_long, fill = group)) +
+  geom_boxplot(outlier.shape = NA, show.legend = FALSE, linewidth = 0.2)+
+  geom_dotplot(binaxis = "y", stackdir = "center", dotsize = 0.3, show.legend = FALSE, stroke = 0.3)+
+  xlab("")+
+  geom_hline(yintercept = 5, linetype = 3, linewidth = 0.15)+
+  scale_y_continuous(limits = c(0,10), breaks = seq(0, 10, by = 1))+
+  ylab("28S integrity ratio")+
+  theme(axis.text.x = element_text(size=8, angle=50, hjust = 1, color = 'black'), 
+        axis.text.y = element_text(size=8, color = 'black'), 
+        axis.title.y = element_text(face = "bold",size=9, color = 'black'),
+        legend.title = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(color = "black", linewidth = 0.4))
+plot_28s_lr
+
+```
+
+```{r}
+sessionInfo()
+```
+
